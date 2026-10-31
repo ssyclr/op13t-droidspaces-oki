@@ -20,8 +20,10 @@ import kabi  # noqa: E402
 FORBIDDEN = ('CFS_BANDWIDTH', 'CGROUP_PIDS')
 MUST_STAY_ON = ('MODULE_SIG_PROTECT', 'MODVERSIONS')
 TRUSTED_KEYS = '"certs/stock_module_signing.pem"'
-# Set on purpose in both builds: the release string and the stock certificate.
-EXPECTED_CONFIG_DIFF = {'LOCALVERSION', 'LOCALVERSION_AUTO', 'SYSTEM_TRUSTED_KEYS'}
+# Set on purpose in both builds: the release string (MODULE_SCMVERSION depends
+# on LOCALVERSION_AUTO; struct module keeps the field either way) and the stock
+# certificate.
+EXPECTED_CONFIG_DIFF = {'LOCALVERSION', 'LOCALVERSION_AUTO', 'MODULE_SCMVERSION', 'SYSTEM_TRUSTED_KEYS'}
 ROOT_STRINGS = re.compile(rb'kernelsu|sukisu|susfs', re.I)
 
 
@@ -337,6 +339,7 @@ def main(art, base, options_file, out):
         f"- 手机：`{read(f'{base}/uname.txt')}`",
         f"- 源码提交：`{read(f'{art}/stock/common_head.txt', '?')}`",
         f"- 本次跳过的推荐选项：{' '.join(sorted(skipped)) or '无'}",
+        f"- 两个变体都关掉的配置项：{os.environ.get('DISABLE_OPTIONS', '') or '无'}",
     ]
     if 'droidspaces' not in variants:
         head.append('- 本次没有 droidspaces 构建')

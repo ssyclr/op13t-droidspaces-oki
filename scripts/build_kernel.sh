@@ -42,7 +42,8 @@ if [ -z "$lists" ]; then
   echo "cannot find the KMI symbol lists in BUILD.bazel" >&2
   exit 1
 fi
-(cd "$COMMON" && cat android/abi_gki_aarch64 $lists) \
+# awk, not cat: not every list ends in a newline.
+(cd "$COMMON" && awk 1 android/abi_gki_aarch64 $lists) \
   | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^#/d' -e '/^$/d' -e '/^\[abi_symbol_list\]$/d' \
   | LC_ALL=C sort -u > "$OUT/abi_symbollist.raw"
 echo "KMI symbol list: $(wc -l < "$OUT/abi_symbollist.raw") symbols from $(wc -w <<< "$lists") + 1 lists"
@@ -52,6 +53,10 @@ echo "KMI symbol list: $(wc -l < "$OUT/abi_symbollist.raw") symbols from $(wc -w
   --disable LOCALVERSION_AUTO \
   --enable TRIM_UNUSED_KSYMS \
   --set-str UNUSED_KSYMS_WHITELIST abi_symbollist.raw
+for opt in ${DISABLE_OPTIONS:-}; do
+  echo "disable CONFIG_$opt"
+  "$COMMON/scripts/config" --file "$OUT/.config" --disable "$opt"
+done
 make_kernel olddefconfig
 
 make_kernel Image 2>&1 | tee "$LOGS/build.log"

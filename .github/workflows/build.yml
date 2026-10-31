@@ -1,5 +1,5 @@
 name: Build Droidspaces OKI kernel
-run-name: ${{ inputs.variants }}${{ inputs.skip_options && format(' skip=[{0}]', inputs.skip_options) || '' }}
+run-name: ${{ inputs.variants }}${{ inputs.skip_options && format(' skip=[{0}]', inputs.skip_options) || '' }}${{ inputs.disable_options && format(' disable=[{0}]', inputs.disable_options) || '' }}
 
 on:
   workflow_dispatch:
@@ -13,6 +13,10 @@ on:
         default: both
       skip_options:
         description: 排查用：本次不开的「推荐」选项，空格分隔，不带 CONFIG_（例如 MACVLAN IP_SET）
+        required: false
+        default: ""
+      disable_options:
+        description: 排查用：两个变体都关掉的配置项，空格分隔，不带 CONFIG_（例如 SLIM_SCHED SCHED_CLASS_EXT）
         required: false
         default: ""
 
@@ -46,6 +50,8 @@ jobs:
           SKIP_OPTIONS: ${{ inputs.skip_options }}
         run: bash scripts/apply_droidspaces.sh "$WORK/common"
       - name: Build Image
+        env:
+          DISABLE_OPTIONS: ${{ inputs.disable_options }}
         run: bash scripts/build_kernel.sh "$WORK" "$RUNNER_TEMP/logs"
       - name: Collect outputs
         run: bash scripts/collect_outputs.sh "$WORK" "out/${{ matrix.variant }}"
@@ -74,6 +80,7 @@ jobs:
       - name: Compare with the stock kernel
         env:
           SKIP_OPTIONS: ${{ inputs.skip_options }}
+          DISABLE_OPTIONS: ${{ inputs.disable_options }}
         run: python3 tools/report.py artifacts baseline config/droidspaces_options.txt report
       - name: Job summary
         if: always()
