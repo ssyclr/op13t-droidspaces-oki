@@ -340,6 +340,7 @@ def main(art, base, options_file, out):
         f"- 源码提交：`{read(f'{art}/stock/common_head.txt', '?')}`",
         f"- 本次跳过的推荐选项：{' '.join(sorted(skipped)) or '无'}",
         f"- 两个变体都关掉的配置项：{os.environ.get('DISABLE_OPTIONS', '') or '无'}",
+        f"- 风驰补丁：{'已打（非官方）' if os.environ.get('FENGCHI') == 'true' else '未打'}",
     ]
     if 'droidspaces' not in variants:
         head.append('- 本次没有 droidspaces 构建')

@@ -7,6 +7,7 @@ set -euo pipefail
 WORK=$(realpath "$1")
 OUT=$2
 HERE=$(cd "$(dirname "$0")/.." && pwd)
+source "$HERE/config/device.env"
 COMMON=$WORK/common
 BUILD=$WORK/out
 IMAGE=$BUILD/arch/arm64/boot/Image
@@ -17,9 +18,9 @@ cp "$IMAGE" "$BUILD/vmlinux.symvers" "$BUILD/System.map" "$BUILD/abi_symbollist.
 python3 "$HERE/tools/extract.py" btf "$BUILD/vmlinux" "$OUT/vmlinux.btf"
 python3 "$HERE/tools/gkilists.py" "$IMAGE" "$OUT/gki_lists"
 grep -a -o -m1 'Linux version [[:print:]]*' "$IMAGE" > "$OUT/linux_version.txt"
-git -C "$COMMON" rev-parse HEAD > "$OUT/common_head.txt"
+echo "$SOURCE_SHA" > "$OUT/common_head.txt"
 git -C "$COMMON" status --porcelain > "$OUT/source_status.txt"
-git -C "$COMMON" diff > "$OUT/source.diff"
+git -C "$COMMON" diff "$SOURCE_SHA" > "$OUT/source.diff"
 
 # Listed options that are not Kconfig symbols in this tree at all.
 : > "$OUT/kconfig_missing.txt"

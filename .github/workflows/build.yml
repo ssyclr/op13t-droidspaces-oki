@@ -1,5 +1,5 @@
 name: Build Droidspaces OKI kernel
-run-name: ${{ inputs.variants }}${{ inputs.skip_options && format(' skip=[{0}]', inputs.skip_options) || '' }}${{ inputs.disable_options && format(' disable=[{0}]', inputs.disable_options) || '' }}
+run-name: ${{ inputs.variants }}${{ inputs.skip_options && format(' skip=[{0}]', inputs.skip_options) || '' }}${{ inputs.disable_options && format(' disable=[{0}]', inputs.disable_options) || '' }}${{ inputs.fengchi && ' fengchi' || '' }}
 
 on:
   workflow_dispatch:
@@ -19,6 +19,10 @@ on:
         description: 排查用：两个变体都关掉的配置项，空格分隔，不带 CONFIG_（例如 SLIM_SCHED SCHED_CLASS_EXT）
         required: false
         default: ""
+      fengchi:
+        description: 打非官方风驰补丁（HMBIRD，来自泄露代码，运行时下载，不存进仓库）
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,6 +46,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends build-essential bc bison flex libssl-dev libelf-dev dwarves cpio lz4 zstd
       - name: Sync source and toolchain
         run: bash scripts/sync_source.sh "$WORK"
+      - name: Apply the Fengchi patch
+        if: inputs.fengchi
+        run: bash scripts/apply_fengchi.sh "$WORK/common"
       - name: Trust the stock module-signing certificate
         run: bash scripts/trust_stock_cert.sh "$WORK/common" baseline/stock_module_signing.pem
       - name: Apply Droidspaces patches and config
@@ -81,6 +88,7 @@ jobs:
         env:
           SKIP_OPTIONS: ${{ inputs.skip_options }}
           DISABLE_OPTIONS: ${{ inputs.disable_options }}
+          FENGCHI: ${{ inputs.fengchi }}
         run: python3 tools/report.py artifacts baseline config/droidspaces_options.txt report
       - name: Job summary
         if: always()
