@@ -10,6 +10,12 @@ DEFCONFIG=arch/arm64/configs/gki_defconfig
 SKIP=" ${SKIP_OPTIONS:-} "
 cd "$COMMON"
 
+# CONFIG_SYSVIPC without the kABI patch resizes task_struct.
+if ! compgen -G "$HERE/patches/001.*.patch" > /dev/null; then
+  echo "patches/001.* is missing: refusing to build without the kABI patch" >&2
+  exit 1
+fi
+
 # 1. Patches: stop unless each one applies with no fuzz at all.
 for p in "$HERE"/patches/*.patch; do
   echo "== $(basename "$p")"
