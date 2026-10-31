@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+
+# Images and modules from the phone stay on the local machine.
+*.img
+*.ko
+Image

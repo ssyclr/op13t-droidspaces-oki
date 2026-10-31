@@ -1,0 +1,1 @@
+Linux version 6.6.118-android15-8-g9bc34d5b0c79-abogki537459655-4k (kleaf@build-host) (Android (11368308, +pgo, +bolt, +lto, +mlgo, based on r510928) clang version 18.0.0 (https://android.googlesource.com/toolchain/llvm-project 477610d4d0d988e69dbc3fae4fe86bff3f07f2b5), LLD 18.0.0) #1 SMP PREEMPT Wed Jul 22 09:32:35 UTC 2026

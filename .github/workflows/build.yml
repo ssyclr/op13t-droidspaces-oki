@@ -1,0 +1,85 @@
+name: Build Droidspaces OKI kernel
+run-name: ${{ inputs.variants }}${{ inputs.skip_options && format(' skip=[{0}]', inputs.skip_options) || '' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      variants:
+        description: 要构建的变体。判定 droidspaces 总要用到 stock，所以 stock 一定会编
+        type: choice
+        options:
+          - both
+          - stock
+        default: both
+      skip_options:
+        description: 排查用：本次不开的「推荐」选项，空格分隔，不带 CONFIG_（例如 MACVLAN IP_SET）
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: ${{ fromJSON(inputs.variants == 'both' && '["stock","droidspaces"]' || '["stock"]') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: bash scripts/free_disk_space.sh
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential bc bison flex libssl-dev libelf-dev dwarves cpio lz4 zstd
+      - name: Sync source and toolchain
+        run: bash scripts/sync_source.sh "$WORK"
+      - name: Trust the stock module-signing certificate
+        run: bash scripts/trust_stock_cert.sh "$WORK/common" baseline/stock_module_signing.pem
+      - name: Apply Droidspaces patches and config
+        if: matrix.variant == 'droidspaces'
+        env:
+          SKIP_OPTIONS: ${{ inputs.skip_options }}
+        run: bash scripts/apply_droidspaces.sh "$WORK/common"
+      - name: Build Image
+        run: bash scripts/build_kernel.sh "$WORK" "$RUNNER_TEMP/logs"
+      - name: Collect outputs
+        run: bash scripts/collect_outputs.sh "$WORK" "out/${{ matrix.variant }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}
+          path: out/${{ matrix.variant }}/
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.variant }}
+          path: ${{ runner.temp }}/logs/
+          if-no-files-found: ignore
+
+  report:
+    name: Pre-flash check
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Compare with the stock kernel
+        env:
+          SKIP_OPTIONS: ${{ inputs.skip_options }}
+        run: python3 tools/report.py artifacts baseline config/droidspaces_options.txt report
+      - name: Job summary
+        if: always()
+        run: cat report/abi-report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: abi-report
+          path: report/
