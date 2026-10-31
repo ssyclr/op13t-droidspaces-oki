@@ -180,55 +180,68 @@ def modules_section(r, art, base, variants):
     return result
 
 
+def load_layouts(path):
+    with open(path, 'rb') as f:
+        return kabi.struct_layouts(kabi.parse_btf(f.read()))
+
+
+def layout_diff(r, label, name, before, after):
+    """List how layouts differ and return (additions, moved, appeared, vanished)."""
+    changed = sorted(k for k in before.keys() & after.keys() if before[k] != after[k])
+    additions, moved = [], []
+    for key in changed:
+        if len(before[key]) == 1 and len(after[key]) == 1:
+            change = kabi.describe_layout_change(next(iter(before[key])), next(iter(after[key])))
+        else:
+            change = {'additions_only': False, 'size': None, 'moved': [], 'removed': [], 'added': [],
+                      'reused': [], 'note': '同名结构体有多个定义'}
+        (additions if change['additions_only'] else moved).append((key, change))
+    appeared, vanished = sorted(after.keys() - before.keys()), sorted(before.keys() - after.keys())
+    r.p(f'**{label}**：比较了 {len(before.keys() & after.keys())} 个结构体；'
+        f'只在空隙或预留槽里新增成员 {len(additions)} 个，已有成员移位/尺寸变化 {len(moved)} 个；'
+        f'新出现 {len(appeared)} 个，消失 {len(vanished)} 个。')
+    r.p()
+    lines = []
+    for key, c in additions:
+        lines.append(f'{key}: size {c["size"][0]}B 不变')
+        lines += [f'    = {m} 仍在原偏移，改到了匿名 union 里' for m in c['reused']]
+        lines += [f'    + @{off}B {member} : {sig}' for off, member, sig in c['added']]
+    r.details(f'{name}：只在空隙或预留槽里新增成员的结构体', lines)
+    lines = []
+    for key, c in moved:
+        lines.append(f'{key}: size {c["size"]} {c.get("note", "")}'.rstrip())
+        lines += [f'    ~ {m}: {o} -> {n}' for m, o, n in c['moved']]
+        lines += [f'    - {m}' for m in c['removed']]
+        lines += [f'    + @{off}B {member} : {sig}' for off, member, sig in c['added']]
+    r.details(f'{name}：已有成员移位或尺寸变化的结构体（需人工审查）', lines)
+    r.details(f'{name}：新出现的结构体', appeared)
+    r.details(f'{name}：消失的结构体', vanished)
+    return [k for k, _ in additions], [k for k, _ in moved], appeared, vanished
+
+
 def btf_section(r, art, base, variants):
     r.h('4. 结构体布局（BTF，覆盖内核里所有具名结构体）')
-    with open(f'{base}/stock.btf', 'rb') as f:
-        phone = kabi.struct_layouts(kabi.parse_btf(f.read()))
-    summary = {}
-    for variant in variants:
-        with open(f'{art}/{variant}/vmlinux.btf', 'rb') as f:
-            new = kabi.struct_layouts(kabi.parse_btf(f.read()))
-        changed = sorted(k for k in phone.keys() & new.keys() if phone[k] != new[k])
-        additions, moved = [], []
-        for key in changed:
-            if len(phone[key]) == 1 and len(new[key]) == 1:
-                change = kabi.describe_layout_change(next(iter(phone[key])), next(iter(new[key])))
-            else:
-                change = {'additions_only': False, 'size': None, 'moved': [], 'removed': [], 'added': [],
-                          'reused': [], 'note': '同名结构体有多个定义'}
-            (additions if change['additions_only'] else moved).append((key, change))
-        appeared, vanished = sorted(new.keys() - phone.keys()), sorted(phone.keys() - new.keys())
-        r.p(f'**手机 → {variant}**：比较了 {len(phone.keys() & new.keys())} 个结构体；'
-            f'只在空隙或预留槽里新增成员 {len(additions)} 个，已有成员移位/尺寸变化 {len(moved)} 个；'
-            f'新出现 {len(appeared)} 个，消失 {len(vanished)} 个。')
-        r.p()
-        lines = []
-        for key, c in additions:
-            lines.append(f'{key}: size {c["size"][0]}B 不变')
-            lines += [f'    = {m} 仍在原偏移，改到了匿名 union 里' for m in c['reused']]
-            lines += [f'    + @{off}B {member} : {sig}' for off, member, sig in c['added']]
-        r.details(f'{variant}：只在空隙或预留槽里新增成员的结构体', lines)
-        lines = []
-        for key, c in moved:
-            lines.append(f'{key}: size {c["size"]} {c.get("note", "")}'.rstrip())
-            lines += [f'    ~ {m}: {o} -> {n}' for m, o, n in c['moved']]
-            lines += [f'    - {m}' for m in c['removed']]
-            lines += [f'    + @{off}B {member} : {sig}' for off, member, sig in c['added']]
-        r.details(f'{variant}：已有成员移位或尺寸变化的结构体（需人工审查）', lines)
-        r.details(f'{variant}：新出现的结构体', appeared)
-        r.details(f'{variant}：消失的结构体', vanished)
-        if variant == 'stock':
-            if additions or moved:
-                r.failures['stock'].append(f'结构体布局与原厂不一致：{len(additions) + len(moved)} 个')
-            if appeared or vanished:
-                r.reviews['stock'].append(f'结构体集合与原厂不同：新出现 {len(appeared)} 个，消失 {len(vanished)} 个')
-        else:
-            if moved:
-                r.failures[variant].append(f'{len(moved)} 个结构体的已有成员发生移位或尺寸变化')
-            if 'struct task_struct' not in [k for k, _ in additions]:
-                r.reviews[variant].append('task_struct 没有出现「只新增成员」的变化，与补丁 001 的预期不符')
-        summary[variant] = {'additions': [k for k, _ in additions], 'moved': [k for k, _ in moved],
-                            'appeared': appeared, 'vanished': vanished}
+    phone = load_layouts(f'{base}/stock.btf')
+    stock = load_layouts(f'{art}/stock/vmlinux.btf')
+    additions, moved, appeared, vanished = layout_diff(r, '手机 → stock 构建', 'stock', phone, stock)
+    summary = {'stock': {'additions': additions, 'moved': moved, 'appeared': appeared, 'vanished': vanished}}
+    if additions or moved:
+        r.failures['stock'].append(f"结构体布局与原厂不一致：{' '.join(additions + moved)}")
+    if appeared or vanished:
+        r.reviews['stock'].append(f'结构体集合与原厂不同：新出现 {len(appeared)} 个，消失 {len(vanished)} 个')
+    if 'droidspaces' not in variants:
+        return summary
+    ds = load_layouts(f'{art}/droidspaces/vmlinux.btf')
+    additions, moved, appeared, vanished = layout_diff(r, 'stock 构建 → droidspaces 构建（判定依据）',
+                                                       'droidspaces', stock, ds)
+    summary['droidspaces'] = {'additions': additions, 'moved': moved, 'appeared': appeared, 'vanished': vanished}
+    if moved:
+        r.failures['droidspaces'].append(f"已有成员移位或尺寸变化：{' '.join(moved)}")
+    if 'struct task_struct' not in additions:
+        r.reviews['droidspaces'].append('task_struct 没有出现「只新增成员」的变化，与补丁 001 的预期不符')
+    unexpected = [k for k in additions if k != 'struct task_struct']
+    if unexpected:
+        r.reviews['droidspaces'].append(f"除 task_struct 外还有结构体新增成员：{' '.join(unexpected)}")
     return summary
 
 
