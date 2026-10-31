@@ -2,6 +2,8 @@
 """Read Android boot images without unpacking tools.
 
   bootimg.py info <boot.img>                 header fields and the AVB footer
+  bootimg.py compare <stock.img> <new.img> <Image>
+                                             check a repacked boot image
   bootimg.py kernel <boot.img> <out>         the kernel exactly as stored
   bootimg.py vendor-ramdisks <vendor_boot.img> <out_dir>
                                              each vendor ramdisk, as stored
@@ -163,8 +165,45 @@ def iter_cpio(data):
         p = (body_off + filesize + 3) & ~3
 
 
+def compare(stock_path, new_path, image_path):
+    """Check that a repacked boot image is the stock one with only the kernel
+    replaced. magiskboot drops the unreferenced 16 KiB signature block after
+    the kernel and moves vbmeta up, so the footer offsets change with it, but
+    the signed vbmeta blob itself must not."""
+    with open(stock_path, 'rb') as f:
+        stock = f.read()
+    with open(new_path, 'rb') as f:
+        new = f.read()
+    with open(image_path, 'rb') as f:
+        image = f.read()
+    old_hdr, new_hdr = parse_boot(stock), parse_boot(new)
+    old_avb, new_avb = parse_avb_footer(stock), parse_avb_footer(new)
+    kernel = new[new_hdr['kernel_offset']:new_hdr['kernel_offset'] + new_hdr['kernel_size']]
+    new_vbmeta = new[new_avb['vbmeta_offset']:new_avb['vbmeta_offset'] + new_avb['vbmeta_size']]
+    old_vbmeta = stock[old_avb['vbmeta_offset']:old_avb['vbmeta_offset'] + old_avb['vbmeta_size']]
+    checks = [
+        ('image size unchanged', len(new) == len(stock)),
+        ('kernel identical to Image', kernel == image),
+        ('kernel stored raw', kernel_format(kernel[:64]).startswith('raw')),
+        ('ramdisk still empty', new_hdr['ramdisk_size'] == 0),
+    ]
+    checks += [(f'header {k} unchanged', new_hdr[k] == old_hdr[k])
+               for k in ('header_version', 'header_size', 'os_version', 'cmdline', 'signature_size')]
+    checks += [
+        ('AVB footer present', new_avb is not None),
+        ('vbmeta blob identical to stock', new_vbmeta == old_vbmeta),
+        ('footer points at the end of the image data',
+         new_avb['original_image_size'] == new_avb['vbmeta_offset'] == new_hdr['ramdisk_offset']),
+    ]
+    for label, ok in checks:
+        print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    return all(ok for _, ok in checks)
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else ''
+    if cmd == 'compare' and len(argv) == 5:
+        sys.exit(0 if compare(argv[2], argv[3], argv[4]) else 1)
     if cmd == 'info' and len(argv) == 3:
         with open(argv[2], 'rb') as f:
             data = f.read()
